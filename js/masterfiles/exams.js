@@ -1,0 +1,928 @@
+const API_BASE = '../../api/masterfiles/';
+const COURSES_API = API_BASE + 'courses.php';
+const SUBJECTS_API = API_BASE + 'subjects.php';
+const EXAMS_API = API_BASE + 'exams.php';
+const EXAM_QUESTIONS_API = API_BASE + 'exam-questions.php';
+const EXAM_BATCHES_API = API_BASE + 'exam-batches.php';
+const QUESTION_BANK_API = API_BASE + 'exam.php';
+
+let exams = [];
+let courses = [];
+let subjectsByCourse = {};
+let allQuestions = [];
+let allBatches = [];
+let currentExamId = null;
+let selectedQuestionIds = [];
+let selectedBatchIds = [];
+
+let currentCourseFilter = '';
+let currentSubjectFilter = '';
+let currentStatusFilter = '';
+
+function showAlert(message, type = 'success') {
+    const alertDiv = document.getElementById('messageAlert');
+    alertDiv.innerHTML = `<div class="alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show">
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>`;
+}
+
+function loadCoursesAndSubjects() {
+    // Load courses first
+    axios.get(`${COURSES_API}?action=list`)
+        .then(res => {
+            if (res.data.success) {
+                courses = res.data.data || [];
+                const courseSelect = document.getElementById('filterCourse');
+                const examCourse = document.getElementById('examCourse');
+                if (courseSelect) {
+                    courseSelect.innerHTML = '<option value="">All courses</option>';
+                }
+                if (examCourse) {
+                    examCourse.innerHTML = '<option value="">Select course</option>';
+                }
+                courses.forEach(c => {
+                    if (courseSelect) {
+                        const opt = document.createElement('option');
+                        opt.value = c.Course_ID;
+                        opt.textContent = c.Course_Name;
+                        courseSelect.appendChild(opt);
+                    }
+                    if (examCourse) {
+                        const opt2 = document.createElement('option');
+                        opt2.value = c.Course_ID;
+                        opt2.textContent = c.Course_Name;
+                        examCourse.appendChild(opt2);
+                    }
+                });
+            }
+        })
+        .catch(err => console.error('Error loading courses:', err));
+
+    // Preload all subjects and group by course
+    axios.get(`${SUBJECTS_API}?action=list`)
+        .then(res => {
+            if (res.data.success) {
+                const list = res.data.data || [];
+                subjectsByCourse = {};
+                list.forEach(s => {
+                    if (!subjectsByCourse[s.Course_ID]) {
+                        subjectsByCourse[s.Course_ID] = [];
+                    }
+                    subjectsByCourse[s.Course_ID].push(s);
+                });
+                populateSubjectFilters();
+                console.log('Subjects loaded:', subjectsByCourse);
+            }
+        })
+        .catch(err => console.error('Error loading subjects:', err));
+}
+
+function populateSubjectFilters() {
+    const filterSubject = document.getElementById('filterSubject');
+    if (!filterSubject) return;
+    filterSubject.innerHTML = '<option value="">All subjects</option>';
+    Object.values(subjectsByCourse).flat().forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.Subject_ID;
+        opt.textContent = `${s.Subject_Name} (${s.Subject_Code})`;
+        filterSubject.appendChild(opt);
+    });
+}
+
+function populateExamSubjectSelect(courseId, selectedSubjectId) {
+    const examSubject = document.getElementById('examSubject');
+    if (!examSubject) return;
+    
+    examSubject.innerHTML = '<option value="">Select subject</option>';
+    
+    if (!courseId) {
+        console.log('No course selected');
+        return;
+    }
+    
+    if (!subjectsByCourse[courseId]) {
+        console.log('No subjects found for course:', courseId);
+        return;
+    }
+    
+    console.log('Populating subjects for course:', courseId, subjectsByCourse[courseId]);
+    
+    subjectsByCourse[courseId].forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.Subject_ID;
+        opt.textContent = `${s.Subject_Name} (${s.Subject_Code})`;
+        if (selectedSubjectId && String(selectedSubjectId) === String(s.Subject_ID)) {
+            opt.selected = true;
+        }
+        examSubject.appendChild(opt);
+    });
+}
+
+function loadExams() {
+    const params = [];
+    if (currentCourseFilter) params.push(`course_id=${encodeURIComponent(currentCourseFilter)}`);
+    if (currentSubjectFilter) params.push(`subject_id=${encodeURIComponent(currentSubjectFilter)}`);
+    const qs = params.length ? '&' + params.join('&') : '';
+
+    axios.get(`${EXAMS_API}?action=list${qs}`)
+        .then(res => {
+            if (res.data.success) {
+                exams = res.data.data || [];
+                renderExams();
+            }
+        })
+        .catch(() => showAlert('Error loading exams', 'error'));
+}
+
+function renderExams() {
+    const container = document.getElementById('examsContainer');
+    if (!container) return;
+    
+    const filtered = currentStatusFilter
+        ? exams.filter(e => e.Status === currentStatusFilter)
+        : exams;
+
+    if (!filtered.length) {
+        container.innerHTML = '<div class="text-center text-muted py-4">No exams found</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(e => `
+        <div class="course-card">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h5 class="mb-1">${escapeHtml(e.Title)}</h5>
+                    <small class="text-muted">${escapeHtml(e.Course_Name)}</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-link text-primary p-0" onclick="editExam(${e.Exam_ID})" title="Edit">
+                        <i class="bi bi-pencil" style="font-size: 1.2rem;"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteExam(${e.Exam_ID})" title="Delete">
+                        <i class="bi bi-trash" style="font-size: 1.2rem;"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-people" style="font-size: 1.5rem;"></i>
+                    <span style="font-size: 1.5rem; font-weight: 600;">${e.Question_Count || 0}</span>
+                    <span class="text-muted">questions</span>
+                </div>
+            </div>
+
+            <div>
+                <div class="text-muted small mb-2">DETAILS</div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <span class="badge bg-light text-dark border">${escapeHtml(e.Subject_Name)}</span>
+                    ${e.Schedule_Date ? `<span class="badge bg-light text-dark border">${new Date(e.Schedule_Date).toLocaleDateString()}</span>` : ''}
+                    ${e.Deadline ? `<span class="badge bg-light text-dark border">Due: ${new Date(e.Deadline).toLocaleDateString()}</span>` : ''}
+                    ${e.Duration ? `<span class="badge bg-light text-dark border">${e.Duration} min</span>` : ''}
+                    ${e.Passing_Score ? `<span class="badge bg-light text-dark border">${e.Passing_Score}% passing</span>` : ''}
+                    <span class="badge ${badgeForStatus(e.Status)}">${escapeHtml(e.Status)}</span>
+                </div>
+                ${e.Status === 'Closed' ? `
+                    <button class="btn btn-sm btn-outline-success mt-2" onclick="reopenExam(${e.Exam_ID})">
+                        <i class="bi bi-arrow-clockwise"></i> Reopen Exam
+                    </button>
+                ` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function manageExamDetails(examId) {
+    // This would open a modal or navigate to manage questions and batches
+    editExam(examId);
+}
+
+function badgeForStatus(status) {
+    if (status === 'Published') return 'bg-success text-white';
+    if (status === 'Closed') return 'bg-secondary text-white';
+    return 'bg-warning text-dark';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+}
+
+// Reopen a closed exam
+async function reopenExam(examId) {
+    // Get exam details first
+    const exam = exams.find(e => e.Exam_ID === examId);
+    if (!exam) return;
+    
+    const result = await Swal.fire({
+        title: 'Reopen Exam',
+        html: `
+            <p>Reopen "<strong>${escapeHtml(exam.Title)}</strong>" for students?</p>
+            <div class="text-start mt-3">
+                <label class="form-label">New Deadline (optional)</label>
+                <input type="datetime-local" id="newDeadline" class="form-control" 
+                       value="${exam.Deadline ? new Date(exam.Deadline).toISOString().slice(0, 16) : ''}">
+                <small class="text-muted">Leave unchanged or set a new deadline</small>
+            </div>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Reopen',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#28a745',
+        preConfirm: () => {
+            return {
+                deadline: document.getElementById('newDeadline').value
+            };
+        }
+    });
+    
+    if (!result.isConfirmed) return;
+    
+    try {
+        const updateData = {
+            action: 'update',
+            exam_id: examId,
+            subject_id: exam.Subject_ID,
+            title: exam.Title,
+            description: exam.Description,
+            schedule_date: exam.Schedule_Date,
+            deadline: result.value.deadline || exam.Deadline,
+            duration: exam.Duration,
+            passing_score: exam.Passing_Score,
+            status: 'Published',
+            is_randomized: exam.Is_Randomized
+        };
+        
+        const response = await axios.post(EXAMS_API, updateData);
+        
+        if (response.data.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Exam Reopened',
+                text: 'The exam is now available to students again',
+                timer: 2000,
+                showConfirmButton: false
+            });
+            loadExams();
+        }
+    } catch (error) {
+        console.error('Error reopening exam:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: error.response?.data?.message || 'Failed to reopen exam'
+        });
+    }
+}
+
+// Load all questions from question bank
+function loadQuestions() {
+    return axios.get(`${QUESTION_BANK_API}?action=list`)
+        .then(res => {
+            if (res.data.success) {
+                allQuestions = res.data.questions || [];
+                return allQuestions;
+            }
+            return [];
+        })
+        .catch(err => {
+            console.error('Error loading questions:', err);
+            return [];
+        });
+}
+
+// Load all batches
+function loadBatches() {
+    return axios.get(`${EXAM_BATCHES_API}?action=list`)
+        .then(res => {
+            if (res.data.success) {
+                allBatches = res.data.data || [];
+                return allBatches;
+            }
+            return [];
+        })
+        .catch(err => {
+            console.error('Error loading batches:', err);
+            return [];
+        });
+}
+
+// Render question list in selection modal
+function renderQuestionList(questions) {
+    const container = document.getElementById('questionListContainer');
+    if (!container) return;
+
+    if (!questions || questions.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted py-4">No questions found</div>';
+        return;
+    }
+
+    // Group questions by subject
+    const grouped = {};
+    questions.forEach(q => {
+        const subjectName = q.Subject_Name || 'Unknown Subject';
+        if (!grouped[subjectName]) {
+            grouped[subjectName] = [];
+        }
+        grouped[subjectName].push(q);
+    });
+
+    let html = '';
+    Object.keys(grouped).sort().forEach(subjectName => {
+        html += `<div class="mb-3">
+            <h6 class="text-primary mb-2">${escapeHtml(subjectName)}</h6>`;
+        
+        grouped[subjectName].forEach(q => {
+            const isChecked = selectedQuestionIds.includes(q.Question_ID);
+            html += `
+                <div class="form-check mb-2">
+                    <input class="form-check-input question-checkbox" type="checkbox" 
+                           value="${q.Question_ID}" id="q_${q.Question_ID}"
+                           ${isChecked ? 'checked' : ''}>
+                    <label class="form-check-label" for="q_${q.Question_ID}">
+                        ${escapeHtml(q.Question_Text)}
+                    </label>
+                </div>`;
+        });
+        
+        html += '</div>';
+    });
+
+    container.innerHTML = html;
+
+    // Add event listeners to checkboxes
+    document.querySelectorAll('.question-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateQuestionSelectionCount);
+    });
+
+    updateQuestionSelectionCount();
+}
+
+// Update question selection count
+function updateQuestionSelectionCount() {
+    const checkboxes = document.querySelectorAll('.question-checkbox:checked');
+    const count = checkboxes.length;
+    const countDisplay = document.getElementById('selectedQuestionCount');
+    if (countDisplay) {
+        countDisplay.textContent = count;
+    }
+}
+
+// Filter questions by subject
+function filterQuestionsBySubject(subjectId) {
+    if (!subjectId) {
+        renderQuestionList(allQuestions);
+        return;
+    }
+    const filtered = allQuestions.filter(q => String(q.Subject_ID) === String(subjectId));
+    renderQuestionList(filtered);
+}
+
+// Search questions by text
+function searchQuestions(searchText) {
+    if (!searchText) {
+        const subjectFilter = document.getElementById('questionSubjectFilter');
+        if (subjectFilter && subjectFilter.value) {
+            filterQuestionsBySubject(subjectFilter.value);
+        } else {
+            renderQuestionList(allQuestions);
+        }
+        return;
+    }
+
+    const searchLower = searchText.toLowerCase();
+    let filtered = allQuestions.filter(q => 
+        q.Question_Text && q.Question_Text.toLowerCase().includes(searchLower)
+    );
+
+    // Also apply subject filter if active
+    const subjectFilter = document.getElementById('questionSubjectFilter');
+    if (subjectFilter && subjectFilter.value) {
+        filtered = filtered.filter(q => String(q.Subject_ID) === String(subjectFilter.value));
+    }
+
+    renderQuestionList(filtered);
+}
+
+// Render batch checkboxes
+function renderBatchSelection() {
+    const container = document.getElementById('batchSelectionContainer');
+    if (!container) return;
+
+    if (!allBatches || allBatches.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted py-2">No batches available</div>';
+        return;
+    }
+
+    let html = '';
+    allBatches.forEach(b => {
+        const isChecked = selectedBatchIds.includes(b.Batch_ID);
+        html += `
+            <div class="form-check mb-2">
+                <input class="form-check-input batch-checkbox" type="checkbox" 
+                       value="${b.Batch_ID}" id="b_${b.Batch_ID}"
+                       ${isChecked ? 'checked' : ''}>
+                <label class="form-check-label" for="b_${b.Batch_ID}">
+                    ${escapeHtml(b.Batch_Name)} - ${escapeHtml(b.Course_Name)}
+                </label>
+            </div>`;
+    });
+
+    container.innerHTML = html;
+
+    // Add event listeners to checkboxes
+    document.querySelectorAll('.batch-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateBatchSelectionCount);
+    });
+
+    updateBatchSelectionCount();
+}
+
+// Update batch selection count
+function updateBatchSelectionCount() {
+    const checkboxes = document.querySelectorAll('.batch-checkbox:checked');
+    const count = checkboxes.length;
+    const countDisplay = document.getElementById('batchCount');
+    if (countDisplay) {
+        countDisplay.textContent = count;
+    }
+}
+
+// Load assigned questions for an exam
+function loadExamQuestions(examId) {
+    return axios.get(`${EXAM_QUESTIONS_API}?action=get&exam_id=${examId}`)
+        .then(res => {
+            if (res.data.success) {
+                return res.data.data || [];
+            }
+            return [];
+        })
+        .catch(err => {
+            console.error('Error loading exam questions:', err);
+            return [];
+        });
+}
+
+// Load assigned batches for an exam
+function loadExamBatches(examId) {
+    return axios.get(`${EXAM_BATCHES_API}?action=get&exam_id=${examId}`)
+        .then(res => {
+            if (res.data.success) {
+                return res.data.data || [];
+            }
+            return [];
+        })
+        .catch(err => {
+            console.error('Error loading exam batches:', err);
+            return [];
+        });
+}
+
+// Update question count display
+function updateQuestionCountDisplay(count) {
+    const countDisplay = document.getElementById('questionCount');
+    if (countDisplay) {
+        countDisplay.textContent = `${count} question${count !== 1 ? 's' : ''} assigned`;
+        countDisplay.className = count > 0 ? 'badge bg-success text-white' : 'badge bg-warning text-dark';
+    }
+}
+
+// Exam form submit
+document.getElementById('examForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const examId = document.getElementById('examId').value;
+    const payload = {
+        subject_id: document.getElementById('examSubject').value,
+        title: document.getElementById('examTitle').value,
+        description: document.getElementById('examDescription').value,
+        schedule_date: document.getElementById('examSchedule').value || null,
+        deadline: document.getElementById('examDeadline').value || null,
+        duration: document.getElementById('examDuration').value || null,
+        passing_score: document.getElementById('examPassing').value || null,
+        status: document.getElementById('examStatus').value,
+        is_randomized: document.getElementById('examRandomized').checked ? 1 : 0
+    };
+
+    if (!payload.subject_id || !payload.title) {
+        showAlert('Subject and title are required', 'error');
+        return;
+    }
+
+    // Collect selected batch IDs
+    const batchCheckboxes = document.querySelectorAll('.batch-checkbox:checked');
+    const batchIds = Array.from(batchCheckboxes).map(cb => parseInt(cb.value));
+
+    let action = 'add';
+    if (examId) {
+        action = 'update';
+        payload.exam_id = examId;
+    }
+    payload.action = action;
+
+    axios.post(EXAMS_API, payload)
+        .then(res => {
+            if (res.data.success) {
+                const savedExamId = examId || res.data.exam_id;
+                
+                // Create promises for batch and question assignments
+                const promises = [];
+                
+                // Assign batches if exam was saved successfully
+                if (savedExamId && batchIds.length > 0) {
+                    promises.push(
+                        axios.post(EXAM_BATCHES_API, {
+                            action: 'assign',
+                            exam_id: savedExamId,
+                            batch_ids: batchIds
+                        })
+                    );
+                }
+                
+                // Assign questions if any were selected
+                if (savedExamId && selectedQuestionIds.length > 0) {
+                    promises.push(
+                        axios.post(EXAM_QUESTIONS_API, {
+                            action: 'assign',
+                            exam_id: savedExamId,
+                            question_ids: selectedQuestionIds
+                        })
+                    );
+                }
+                
+                // Wait for all assignments to complete
+                if (promises.length > 0) {
+                    return Promise.all(promises).then(() => {
+                        showAlert(action === 'add' ? 'Exam added successfully' : 'Exam updated successfully', 'success');
+                        bootstrap.Modal.getInstance(document.getElementById('examModal')).hide();
+                        document.getElementById('examForm').reset();
+                        document.getElementById('examId').value = '';
+                        loadExams();
+                    }).catch(err => {
+                        console.error('Error assigning batches/questions:', err);
+                        const errorMsg = err.response?.data?.message || 'Failed to assign batches or questions';
+                        showAlert(errorMsg, 'error');
+                    });
+                } else {
+                    showAlert(action === 'add' ? 'Exam added successfully' : 'Exam updated successfully', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('examModal')).hide();
+                    document.getElementById('examForm').reset();
+                    document.getElementById('examId').value = '';
+                    loadExams();
+                }
+            } else {
+                showAlert(res.data.message || 'Operation failed', 'error');
+            }
+        })
+        .catch(err => {
+            showAlert(err.response?.data?.message || 'Error saving exam', 'error');
+        });
+});
+
+function editExam(examId) {
+    const exam = exams.find(e => e.Exam_ID === examId);
+    if (!exam) {
+        showAlert('Exam not found in list', 'error');
+        return;
+    }
+    
+    // Set a flag to prevent reset on modal show
+    const modal = document.getElementById('examModal');
+    modal.dataset.editMode = 'true';
+    
+    currentExamId = examId;
+    
+    document.getElementById('examId').value = exam.Exam_ID;
+    document.getElementById('examTitle').value = exam.Title || '';
+    document.getElementById('examDescription').value = exam.Description || '';
+    document.getElementById('examSchedule').value = exam.Schedule_Date ? exam.Schedule_Date.replace(' ', 'T') : '';
+    document.getElementById('examDeadline').value = exam.Deadline ? exam.Deadline.replace(' ', 'T') : '';
+    document.getElementById('examDuration').value = exam.Duration || '';
+    document.getElementById('examPassing').value = exam.Passing_Score || '';
+    document.getElementById('examStatus').value = exam.Status || 'Draft';
+    document.getElementById('examRandomized').checked = !!exam.Is_Randomized;
+
+    const examCourse = document.getElementById('examCourse');
+    if (examCourse) {
+        examCourse.value = exam.Course_ID;
+        
+        // Ensure subjects are loaded before populating
+        if (subjectsByCourse[exam.Course_ID] && subjectsByCourse[exam.Course_ID].length > 0) {
+            populateExamSubjectSelect(exam.Course_ID, exam.Subject_ID);
+        } else {
+            // If subjects not loaded yet, reload them
+            axios.get(`${SUBJECTS_API}?action=list&course_id=${exam.Course_ID}`)
+                .then(res => {
+                    if (res.data.success) {
+                        const list = res.data.data || [];
+                        if (!subjectsByCourse[exam.Course_ID]) subjectsByCourse[exam.Course_ID] = [];
+                        subjectsByCourse[exam.Course_ID] = list;
+                        populateExamSubjectSelect(exam.Course_ID, exam.Subject_ID);
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading subjects:', err);
+                });
+        }
+    }
+
+    // Load assigned questions and update count
+    loadExamQuestions(examId).then(questions => {
+        selectedQuestionIds = questions.map(q => q.Question_ID);
+        updateQuestionCountDisplay(questions.length);
+    });
+
+    // Load assigned batches and pre-select them
+    loadExamBatches(examId).then(batches => {
+        selectedBatchIds = batches.map(b => b.Batch_ID);
+        renderBatchSelection();
+    });
+
+    document.getElementById('examModalLabel').textContent = 'Edit Exam';
+    document.getElementById('examSubmitBtn').textContent = 'Save Changes';
+    new bootstrap.Modal(modal).show();
+}
+
+function deleteExam(examId) {
+    Swal.fire({
+        title: 'Delete exam?',
+        text: 'This action cannot be undone',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete',
+        cancelButtonText: 'Cancel'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        axios.post(EXAMS_API, { action: 'delete', exam_id: examId })
+            .then(res => {
+                if (res.data.success) {
+                    showAlert('Exam deleted', 'success');
+                    loadExams();
+                } else {
+                    showAlert(res.data.message || 'Failed to delete exam', 'error');
+                }
+            })
+            .catch(err => showAlert(err.response?.data?.message || 'Error deleting exam', 'error'));
+    });
+}
+
+// Filters
+document.getElementById('filterCourse').addEventListener('change', function () {
+    currentCourseFilter = this.value || '';
+    // Update subject filter to only subjects under this course
+    const filterSubject = document.getElementById('filterSubject');
+    if (filterSubject) {
+        filterSubject.innerHTML = '<option value="">All subjects</option>';
+        const list = currentCourseFilter ? (subjectsByCourse[currentCourseFilter] || []) : Object.values(subjectsByCourse).flat();
+        list.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.Subject_ID;
+            opt.textContent = `${s.Subject_Name} (${s.Subject_Code})`;
+            filterSubject.appendChild(opt);
+        });
+    }
+    currentSubjectFilter = '';
+    loadExams();
+});
+
+document.getElementById('filterSubject').addEventListener('change', function () {
+    currentSubjectFilter = this.value || '';
+    loadExams();
+});
+
+document.getElementById('filterExamStatus').addEventListener('change', function () {
+    currentStatusFilter = this.value || '';
+    renderExams();
+});
+
+// When course in exam modal changes, update subject select
+document.getElementById('examCourse').addEventListener('change', function () {
+    const courseId = this.value;
+    
+    // If subjects for this course are already loaded, populate immediately
+    if (subjectsByCourse[courseId] && subjectsByCourse[courseId].length > 0) {
+        populateExamSubjectSelect(courseId);
+    } else if (courseId) {
+        // Otherwise, fetch subjects for this course
+        axios.get(`${SUBJECTS_API}?action=list&course_id=${courseId}`)
+            .then(res => {
+                if (res.data.success) {
+                    const list = res.data.data || [];
+                    subjectsByCourse[courseId] = list;
+                    populateExamSubjectSelect(courseId);
+                }
+            })
+            .catch(err => {
+                console.error('Error loading subjects:', err);
+                showAlert('Failed to load subjects', 'error');
+            });
+    } else {
+        populateExamSubjectSelect('');
+    }
+});
+
+// Auto-calculate deadline when schedule date changes
+document.getElementById('examSchedule').addEventListener('change', function() {
+    const scheduleDate = this.value;
+    const deadlineInput = document.getElementById('examDeadline');
+    
+    // Only auto-fill if deadline is empty
+    if (scheduleDate && !deadlineInput.value) {
+        const schedule = new Date(scheduleDate);
+        // Default: 24 hours after schedule date
+        schedule.setHours(schedule.getHours() + 24);
+        
+        // Format for datetime-local input
+        const year = schedule.getFullYear();
+        const month = String(schedule.getMonth() + 1).padStart(2, '0');
+        const day = String(schedule.getDate()).padStart(2, '0');
+        const hours = String(schedule.getHours()).padStart(2, '0');
+        const minutes = String(schedule.getMinutes()).padStart(2, '0');
+        
+        deadlineInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+});
+
+// Validate deadline is after schedule date
+document.getElementById('examDeadline').addEventListener('change', function() {
+    const scheduleDate = document.getElementById('examSchedule').value;
+    const deadline = this.value;
+    
+    if (scheduleDate && deadline) {
+        const schedule = new Date(scheduleDate);
+        const deadlineDate = new Date(deadline);
+        
+        if (deadlineDate <= schedule) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Invalid Deadline',
+                text: 'Deadline must be after the schedule date',
+                confirmButtonColor: '#2563eb'
+            });
+            this.value = '';
+        }
+    }
+});
+
+// Modal show: reset to Add mode (only if not in edit mode)
+document.getElementById('examModal').addEventListener('show.bs.modal', function (e) {
+    const modal = e.target;
+    
+    // Skip reset if opening for edit
+    if (modal.dataset.editMode === 'true') {
+        delete modal.dataset.editMode;
+        return;
+    }
+    
+    // Reset for add mode
+    document.getElementById('examForm').reset();
+    document.getElementById('examId').value = '';
+    document.getElementById('examModalLabel').textContent = 'Add New Exam';
+    document.getElementById('examSubmitBtn').textContent = 'Add Exam';
+    
+    currentExamId = null;
+    selectedQuestionIds = [];
+    selectedBatchIds = [];
+    
+    updateQuestionCountDisplay(0);
+    renderBatchSelection();
+});
+
+// Manage Questions button handler
+document.getElementById('manageQuestionsBtn').addEventListener('click', function() {
+    // Load questions if not already loaded
+    if (allQuestions.length === 0) {
+        loadQuestions().then(() => {
+            populateQuestionSubjectFilter();
+            renderQuestionList(allQuestions);
+            new bootstrap.Modal(document.getElementById('questionSelectionModal')).show();
+        });
+    } else {
+        renderQuestionList(allQuestions);
+        new bootstrap.Modal(document.getElementById('questionSelectionModal')).show();
+    }
+});
+
+// Populate subject filter in question selection modal
+function populateQuestionSubjectFilter() {
+    const filter = document.getElementById('questionSubjectFilter');
+    if (!filter) return;
+    
+    filter.innerHTML = '<option value="">All Subjects</option>';
+    
+    // Get unique subjects from questions
+    const subjects = {};
+    allQuestions.forEach(q => {
+        if (q.Subject_ID && q.Subject_Name) {
+            subjects[q.Subject_ID] = q.Subject_Name;
+        }
+    });
+    
+    Object.keys(subjects).sort((a, b) => subjects[a].localeCompare(subjects[b])).forEach(subjectId => {
+        const opt = document.createElement('option');
+        opt.value = subjectId;
+        opt.textContent = subjects[subjectId];
+        filter.appendChild(opt);
+    });
+}
+
+// Question subject filter change handler
+document.getElementById('questionSubjectFilter').addEventListener('change', function() {
+    filterQuestionsBySubject(this.value);
+});
+
+// Question search input handler
+document.getElementById('questionSearchInput').addEventListener('input', function() {
+    searchQuestions(this.value);
+});
+
+// Save Question Selection button handler
+document.getElementById('saveQuestionSelectionBtn').addEventListener('click', function() {
+    const checkboxes = document.querySelectorAll('.question-checkbox:checked');
+    const questionIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    
+    if (!currentExamId) {
+        // Store selection for new exam (will be saved when exam is created)
+        selectedQuestionIds = questionIds;
+        updateQuestionCountDisplay(questionIds.length);
+        bootstrap.Modal.getInstance(document.getElementById('questionSelectionModal')).hide();
+        return;
+    }
+    
+    // Save question assignment for existing exam
+    axios.post(EXAM_QUESTIONS_API, {
+        action: 'assign',
+        exam_id: currentExamId,
+        question_ids: questionIds
+    })
+    .then(res => {
+        if (res.data.success) {
+            selectedQuestionIds = questionIds;
+            updateQuestionCountDisplay(questionIds.length);
+            bootstrap.Modal.getInstance(document.getElementById('questionSelectionModal')).hide();
+            showAlert('Questions assigned successfully', 'success');
+            loadExams(); // Refresh exam list to update counts
+        } else {
+            showAlert(res.data.message || 'Failed to assign questions', 'error');
+        }
+    })
+    .catch(err => {
+        showAlert(err.response?.data?.message || 'Error assigning questions', 'error');
+    });
+});
+
+// Dropdown toggle handler for Masterfiles menu
+document.querySelectorAll('.dropdown-toggle').forEach(toggle => {
+    toggle.addEventListener('click', function(e) {
+        e.preventDefault();
+        const submenu = this.nextElementSibling;
+        const isActive = this.classList.toggle('active');
+        if (isActive) {
+            submenu.classList.add('show');
+        } else {
+            submenu.classList.remove('show');
+        }
+    });
+});
+
+// Handle submenu link clicks - prevent dropdown from closing
+document.querySelectorAll('.submenu a[href]').forEach(link => {
+    link.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const href = this.getAttribute('href');
+        window.location.href = href;
+    });
+});
+
+// Logout handler
+document.getElementById('logoutBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    Swal.fire({
+        title: 'Logout',
+        text: 'Are you sure you want to logout?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, logout',
+        cancelButtonText: 'No, stay',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#6b7280'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            fetch('../../api/auth/logout.php', {
+                method: 'POST'
+            }).then(() => {
+                window.location.href = '../../login.php';
+            }).catch(() => {
+                window.location.href = '../../login.php';
+            });
+        }
+    });
+});
+
+// Init
+loadCoursesAndSubjects();
+loadExams();
+loadBatches();
+

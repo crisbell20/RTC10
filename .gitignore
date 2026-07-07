@@ -1,0 +1,40 @@
+# Sensitive files - DO NOT COMMIT
+api/config/connection-pdo.php
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Database backups
+*.sql.backup
+*.sql.bak
+
+# Environment files
+.env
+.env.local
+
+# Node modules (if any)
+node_modules/
+
+# Composer vendor (if any)
+vendor/
+
+# Cache
+cache/
+*.cache

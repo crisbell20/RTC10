@@ -1,0 +1,144 @@
+/* CCMD Specific Styles */
+
+/* Sidebar menu label */
+.sidebar-menu .menu-label {
+    display: block;
+    padding: 12px 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 20px;
+    margin-bottom: 8px;
+    cursor: default;
+    pointer-events: none;
+}
+
+.sidebar-menu .menu-label i {
+    margin-right: 6px;
+    font-size: 0.8rem;
+    opacity: 0.6;
+}
+
+/* Exam Cards */
+.exam-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 20px;
+    background: white;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.exam-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.exam-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 12px;
+}
+
+.exam-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 4px;
+}
+
+.exam-card-subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.exam-card-body {
+    margin-bottom: 12px;
+}
+
+.exam-card-info {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.exam-card-info-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.exam-card-info-item i {
+    color: #9ca3af;
+}
+
+.exam-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid #f3f4f6;
+}
+
+.exam-card-stats {
+    display: flex;
+    gap: 12px;
+}
+
+/* Course and Subject Groups */
+.course-group {
+    margin-bottom: 2rem;
+}
+
+.course-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.subject-group {
+    margin-bottom: 1.5rem;
+}
+
+.subject-title {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #4b5563;
+    margin-bottom: 0.75rem;
+}
+
+.exams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.exam-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-bottom: 0.5rem;
+}
+
+.exam-info i {
+    color: #9ca3af;
+    width: 16px;
+}
+
+.exam-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}

@@ -1,0 +1,6 @@
+# Set login.php as the directory index
+DirectoryIndex login.php
+
+# Enable rewrite engine for future use
+RewriteEngine On
+RewriteBase /RTC10/
