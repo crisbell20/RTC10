@@ -255,9 +255,10 @@ $resultId = $_GET['result_id'] ?? null;
             const resultsHTML = results.map(result => {
                 const isPassed = result.Remarks === 'Passed';
                 const percentage = parseFloat(result.Percentage) || 0;
+                const canView = result.can_view_details !== false;
                 
                 return `
-                    <div class="result-card" onclick="window.location.href='result.php?result_id=${result.Result_ID}'">
+                    <div class="result-card" ${canView ? `onclick="window.location.href='result.php?result_id=${result.Result_ID}'"` : 'style="cursor: default;" title="Response review is disabled for this exam"'}>
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
                                 <h5 class="mb-2">${escapeHtml(result.exam_title)}</h5>
@@ -266,6 +267,7 @@ $resultId = $_GET['result_id'] ?? null;
                                     <span><i class="bi bi-calendar3"></i> ${formatDate(result.Submission_Date)}</span>
                                     <span><i class="bi bi-clock"></i> ${result.time_taken || 'N/A'}</span>
                                 </div>
+                                ${!canView ? '<small class="text-muted"><i class="bi bi-lock"></i> Response review disabled</small>' : ''}
                             </div>
                             <div class="text-end">
                                 <span class="badge ${isPassed ? 'bg-success' : 'bg-danger'} mb-2">
@@ -365,6 +367,14 @@ $resultId = $_GET['result_id'] ?? null;
             
             document.getElementById('resultContent').innerHTML = resultHTML;
             document.getElementById('resultContent').style.display = 'block';
+
+            if (data.review_allowed === false) {
+                const notice = document.createElement('div');
+                notice.className = 'alert alert-info mt-3';
+                notice.innerHTML = `<i class="bi bi-info-circle me-2"></i>${escapeHtml(data.review_message || 'Response review is not available for this exam.')}`;
+                document.getElementById('resultContent').appendChild(notice);
+                return;
+            }
             
             displayQuestions(data.questions);
         }

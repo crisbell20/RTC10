@@ -173,7 +173,30 @@ CREATE TABLE `tbl_exam` (
   `Passing_Score` decimal(5,2) DEFAULT NULL,
   `Status` enum('Draft','Published','Closed') NOT NULL DEFAULT 'Draft',
   `Is_Randomized` tinyint(1) NOT NULL DEFAULT 0,
-  `Time_Limit` int(11) DEFAULT NULL COMMENT 'Per-question time limit in seconds'
+  `Time_Limit` int(11) DEFAULT NULL COMMENT 'Per-question time limit in seconds',
+  `Exam_Code` varchar(12) DEFAULT NULL,
+  `Exam_Code_Generated_At` datetime DEFAULT NULL,
+  `Exam_Code_Reset_Count` int(11) NOT NULL DEFAULT 0,
+  `Is_Archived` tinyint(1) NOT NULL DEFAULT 0,
+  `Archived_At` datetime DEFAULT NULL,
+  `Allow_Response_Review` tinyint(1) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `tbl_exam_code_attempt`
+--
+
+CREATE TABLE `tbl_exam_code_attempt` (
+  `Attempt_ID` int(11) NOT NULL AUTO_INCREMENT,
+  `Exam_ID` int(11) NOT NULL,
+  `User_ID` int(11) NOT NULL,
+  `IP_Address` varchar(45) DEFAULT NULL,
+  `Success` tinyint(1) NOT NULL DEFAULT 0,
+  `Attempted_At` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`Attempt_ID`),
+  KEY `idx_attempt_lookup` (`Exam_ID`,`User_ID`,`Attempted_At`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

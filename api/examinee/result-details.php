@@ -8,6 +8,7 @@ header('Content-Type: application/json');
 session_start();
 
 require_once '../config/connection-pdo.php';
+require_once '../includes/exam-code-utils.php';
 
 function sendSuccess($data = []) {
     http_response_code(200);
@@ -36,9 +37,12 @@ if (!$resultId) {
 try {
     // Set PDO error mode
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    $hasResponseReview = responseReviewColumnExists($pdo);
+    $reviewSelect = $hasResponseReview ? 'e.Allow_Response_Review,' : '';
     
     // Get result summary - simplified query first
-    $stmt = $pdo->prepare('
+    $stmt = $pdo->prepare("
         SELECT 
             r.Result_ID,
             r.Score,
@@ -48,6 +52,7 @@ try {
             e.Exam_ID,
             e.Title as exam_title,
             e.Passing_Score,
+            {$reviewSelect}
             es.Session_ID,
             es.Time_Started,
             es.Time_Ended
@@ -55,7 +60,7 @@ try {
         INNER JOIN tbl_exam_session es ON r.Session_ID = es.Session_ID
         INNER JOIN tbl_exam e ON es.Exam_ID = e.Exam_ID
         WHERE r.Result_ID = ? AND es.User_ID = ?
-    ');
+    ");
     
     if (!$stmt->execute([$resultId, $userId])) {
         error_log("SQL Error: " . print_r($stmt->errorInfo(), true));
@@ -113,8 +118,10 @@ try {
     $result['Duration_Minutes'] = $result['Duration_Minutes'] ?? 0;
     $result['Subject_Name'] = $result['Subject_Name'] ?? 'N/A';
     $result['Course_Name'] = $result['Course_Name'] ?? 'N/A';
-    
-    // Get total questions
+
+    $reviewAllowed = examAllowsResponseReview($result, $hasResponseReview);
+    $result['review_allowed'] = $reviewAllowed;
+
     $stmt = $pdo->prepare('
         SELECT COUNT(*) as total
         FROM tbl_exam_question
@@ -123,6 +130,11 @@ try {
     $stmt->execute([$result['Exam_ID']]);
     $totalData = $stmt->fetch(PDO::FETCH_ASSOC);
     $result['total_questions'] = $totalData['total'];
+
+    if (!$reviewAllowed) {
+        $result['review_message'] = 'Your instructor has disabled response review for this exam. You can see your score summary only.';
+        sendSuccess($result);
+    }
     
     // Get questions with answers
     $stmt = $pdo->prepare('

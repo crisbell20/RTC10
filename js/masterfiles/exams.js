@@ -120,12 +120,13 @@ function populateExamSubjectSelect(courseId, selectedSubjectId) {
 }
 
 function loadExams() {
-    const params = [];
+    const params = ['action=list'];
     if (currentCourseFilter) params.push(`course_id=${encodeURIComponent(currentCourseFilter)}`);
     if (currentSubjectFilter) params.push(`subject_id=${encodeURIComponent(currentSubjectFilter)}`);
-    const qs = params.length ? '&' + params.join('&') : '';
+    if (currentStatusFilter === 'Archived') params.push('archived_only=1');
+    const qs = '?' + params.join('&');
 
-    axios.get(`${EXAMS_API}?action=list${qs}`)
+    axios.get(`${EXAMS_API}${qs}`)
         .then(res => {
             if (res.data.success) {
                 exams = res.data.data || [];
@@ -135,13 +136,67 @@ function loadExams() {
         .catch(() => showAlert('Error loading exams', 'error'));
 }
 
+function filterExamsForDisplay() {
+    if (currentStatusFilter === 'Archived') {
+        return exams.filter(e => String(e.Is_Archived) === '1');
+    }
+
+    return exams.filter(e => {
+        if (String(e.Is_Archived) === '1') {
+            return false;
+        }
+        if (currentStatusFilter) {
+            return e.Status === currentStatusFilter;
+        }
+        return true;
+    });
+}
+
+function buildExamActionMenu(exam) {
+    const isArchived = String(exam.Is_Archived) === '1';
+    const items = [];
+
+    if (!isArchived) {
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="edit" data-exam-id="${exam.Exam_ID}"><i class="bi bi-pencil me-2"></i>Edit exam</button></li>`);
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="copy-code" data-exam-id="${exam.Exam_ID}"><i class="bi bi-clipboard me-2"></i>Copy exam code</button></li>`);
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="reset-code" data-exam-id="${exam.Exam_ID}"><i class="bi bi-arrow-clockwise me-2"></i>Reset exam code</button></li>`);
+        items.push('<li><hr class="dropdown-divider"></li>');
+
+        const reviewOn = String(exam.Allow_Response_Review) === '1';
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="toggle-review" data-exam-id="${exam.Exam_ID}"><i class="bi ${reviewOn ? 'bi-check-circle-fill text-success' : 'bi-circle'} me-2"></i>Allow response review</button></li>`);
+        items.push('<li><hr class="dropdown-divider"></li>');
+
+        if (exam.Status === 'Draft') {
+            items.push(`<li><button class="dropdown-item" type="button" data-exam-action="publish" data-exam-id="${exam.Exam_ID}"><i class="bi bi-send me-2"></i>Publish exam</button></li>`);
+        }
+        if (exam.Status === 'Published') {
+            items.push(`<li><button class="dropdown-item" type="button" data-exam-action="close" data-exam-id="${exam.Exam_ID}"><i class="bi bi-lock me-2"></i>Close exam</button></li>`);
+        }
+        if (exam.Status === 'Closed') {
+            items.push(`<li><button class="dropdown-item" type="button" data-exam-action="reopen" data-exam-id="${exam.Exam_ID}"><i class="bi bi-unlock me-2"></i>Reopen exam</button></li>`);
+        }
+
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="archive" data-exam-id="${exam.Exam_ID}"><i class="bi bi-archive me-2"></i>Archive</button></li>`);
+
+        if ((exam.Session_Count || 0) === 0 && exam.Status !== 'Published') {
+            items.push('<li><hr class="dropdown-divider"></li>');
+            items.push(`<li><button class="dropdown-item text-danger" type="button" data-exam-action="delete" data-exam-id="${exam.Exam_ID}"><i class="bi bi-trash me-2"></i>Delete</button></li>`);
+        }
+    } else {
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="restore" data-exam-id="${exam.Exam_ID}"><i class="bi bi-arrow-counterclockwise me-2"></i>Restore</button></li>`);
+        if (exam.Exam_Code) {
+            items.push(`<li><button class="dropdown-item" type="button" data-exam-action="copy-code" data-exam-id="${exam.Exam_ID}"><i class="bi bi-clipboard me-2"></i>Copy exam code</button></li>`);
+        }
+    }
+
+    return items.join('');
+}
+
 function renderExams() {
     const container = document.getElementById('examsContainer');
     if (!container) return;
-    
-    const filtered = currentStatusFilter
-        ? exams.filter(e => e.Status === currentStatusFilter)
-        : exams;
+
+    const filtered = filterExamsForDisplay();
 
     if (!filtered.length) {
         container.innerHTML = '<div class="text-center text-muted py-4">No exams found</div>';
@@ -149,22 +204,37 @@ function renderExams() {
     }
 
     container.innerHTML = filtered.map(e => `
-        <div class="course-card">
-            <div class="d-flex justify-content-between align-items-start mb-3">
+        <div class="course-card" data-exam-id="${e.Exam_ID}">
+            <div class="d-flex justify-content-between align-items-start mb-2">
                 <div>
                     <h5 class="mb-1">${escapeHtml(e.Title)}</h5>
-                    <small class="text-muted">${escapeHtml(e.Course_Name)}</small>
+                    <small class="text-muted">${escapeHtml(e.Course_Name)} • ${escapeHtml(e.Subject_Name)}</small>
                 </div>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-link text-primary p-0" onclick="editExam(${e.Exam_ID})" title="Edit">
-                        <i class="bi bi-pencil" style="font-size: 1.2rem;"></i>
-                    </button>
-                    <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteExam(${e.Exam_ID})" title="Delete">
-                        <i class="bi bi-trash" style="font-size: 1.2rem;"></i>
-                    </button>
+                <div class="d-flex align-items-center gap-1">
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-link text-secondary p-0" data-bs-toggle="dropdown" aria-expanded="false" title="More actions">
+                            <i class="bi bi-three-dots-vertical" style="font-size: 1.2rem;"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            ${buildExamActionMenu(e)}
+                        </ul>
+                    </div>
                 </div>
             </div>
-            
+
+            ${e.Exam_Code ? `
+            <div class="d-flex align-items-center flex-wrap gap-2 mb-3 p-2 rounded" style="background:#f8f9fa;">
+                <span class="text-muted small">Exam code:</span>
+                <code class="fs-5 fw-bold text-primary exam-code-value">${escapeHtml(e.Exam_Code)}</code>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-exam-action="copy-code" data-exam-id="${e.Exam_ID}">
+                    <i class="bi bi-clipboard"></i> Copy
+                </button>
+                ${String(e.Is_Archived) !== '1' ? `
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-exam-action="reset-code" data-exam-id="${e.Exam_ID}">
+                    <i class="bi bi-arrow-clockwise"></i> Reset
+                </button>` : ''}
+            </div>` : ''}
+
             <div class="mb-3">
                 <div class="d-flex align-items-center gap-2 mb-2">
                     <i class="bi bi-people" style="font-size: 1.5rem;"></i>
@@ -176,21 +246,317 @@ function renderExams() {
             <div>
                 <div class="text-muted small mb-2">DETAILS</div>
                 <div class="d-flex gap-2 flex-wrap">
-                    <span class="badge bg-light text-dark border">${escapeHtml(e.Subject_Name)}</span>
                     ${e.Schedule_Date ? `<span class="badge bg-light text-dark border">${new Date(e.Schedule_Date).toLocaleDateString()}</span>` : ''}
                     ${e.Deadline ? `<span class="badge bg-light text-dark border">Due: ${new Date(e.Deadline).toLocaleDateString()}</span>` : ''}
                     ${e.Duration ? `<span class="badge bg-light text-dark border">${e.Duration} min</span>` : ''}
                     ${e.Passing_Score ? `<span class="badge bg-light text-dark border">${e.Passing_Score}% passing</span>` : ''}
-                    <span class="badge ${badgeForStatus(e.Status)}">${escapeHtml(e.Status)}</span>
+                    ${e.Allow_Response_Review !== undefined ? `<span class="badge ${String(e.Allow_Response_Review) === '1' ? 'bg-info text-white' : 'bg-light text-dark border'}">Review: ${String(e.Allow_Response_Review) === '1' ? 'ON' : 'OFF'}</span>` : ''}
+                    <span class="badge ${badgeForStatus(e.Status, e.Is_Archived)}">${escapeHtml(String(e.Is_Archived) === '1' ? 'Archived' : e.Status)}</span>
                 </div>
-                ${e.Status === 'Closed' ? `
-                    <button class="btn btn-sm btn-outline-success mt-2" onclick="reopenExam(${e.Exam_ID})">
-                        <i class="bi bi-arrow-clockwise"></i> Reopen Exam
-                    </button>
-                ` : ''}
             </div>
         </div>
     `).join('');
+}
+
+function copyExamCode(examId) {
+    const exam = exams.find(e => String(e.Exam_ID) === String(examId));
+    if (!exam || !exam.Exam_Code) {
+        showAlert('Exam code is not available', 'error');
+        return;
+    }
+
+    const code = exam.Exam_Code;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code)
+            .then(() => showAlert(`Exam code copied: ${code}`, 'success'))
+            .catch(() => fallbackCopyExamCode(code));
+    } else {
+        fallbackCopyExamCode(code);
+    }
+}
+
+function fallbackCopyExamCode(code) {
+    const temp = document.createElement('textarea');
+    temp.value = code;
+    document.body.appendChild(temp);
+    temp.select();
+    try {
+        document.execCommand('copy');
+        showAlert(`Exam code copied: ${code}`, 'success');
+    } catch (err) {
+        showAlert('Could not copy exam code', 'error');
+    }
+    document.body.removeChild(temp);
+}
+
+function showExamCodeModal(code, title = 'Exam Code') {
+    Swal.fire({
+        title,
+        html: `
+            <p class="text-muted mb-2">Share this code with examinees to start the exam.</p>
+            <div class="p-3 rounded" style="background:#f8f9fa;">
+                <code style="font-size:1.75rem; font-weight:700; letter-spacing:0.15em;">${escapeHtml(code)}</code>
+            </div>
+        `,
+        icon: 'info',
+        confirmButtonText: 'Copy code',
+        showCancelButton: true,
+        cancelButtonText: 'Close'
+    }).then(result => {
+        if (result.isConfirmed) {
+            copyExamCodeByValue(code);
+        }
+    });
+}
+
+function copyExamCodeByValue(code) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code)
+            .then(() => showAlert(`Exam code copied: ${code}`, 'success'))
+            .catch(() => fallbackCopyExamCode(code));
+    } else {
+        fallbackCopyExamCode(code);
+    }
+}
+
+async function resetExamCode(examId) {
+    const exam = exams.find(e => String(e.Exam_ID) === String(examId));
+    if (!exam) return;
+
+    const result = await Swal.fire({
+        title: 'Reset exam code?',
+        html: `Generate a new code for <strong>${escapeHtml(exam.Title)}</strong>?<br><small class="text-muted">Students using the old code will no longer be able to start the exam.</small>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Reset code',
+        cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+        const res = await axios.post(EXAMS_API, { action: 'reset_code', exam_id: examId });
+        if (res.data.success) {
+            const idx = exams.findIndex(e => String(e.Exam_ID) === String(examId));
+            if (idx !== -1) {
+                exams[idx].Exam_Code = res.data.exam_code;
+            }
+            renderExams();
+            showExamCodeModal(res.data.exam_code, 'New Exam Code');
+        } else {
+            showAlert(res.data.message || 'Failed to reset exam code', 'error');
+        }
+    } catch (err) {
+        showAlert(err.response?.data?.message || 'Error resetting exam code', 'error');
+    }
+}
+
+async function toggleResponseReview(examId) {
+    const exam = exams.find(e => String(e.Exam_ID) === String(examId));
+    if (!exam) return;
+
+    const currentlyOn = String(exam.Allow_Response_Review) === '1';
+    const enabling = !currentlyOn;
+
+    const result = await Swal.fire({
+        title: enabling ? 'Enable response review?' : 'Disable response review?',
+        html: enabling
+            ? `Examinees will be able to view their answers and correct solutions for <strong>${escapeHtml(exam.Title)}</strong> after submission.`
+            : `Examinees will only see their score for <strong>${escapeHtml(exam.Title)}</strong>. Question breakdown and correct answers will be hidden.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: enabling ? 'Enable review' : 'Disable review',
+        cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+        const res = await axios.post(EXAMS_API, { action: 'toggle_response_review', exam_id: examId });
+        if (res.data.success) {
+            const idx = exams.findIndex(e => String(e.Exam_ID) === String(examId));
+            if (idx !== -1) {
+                exams[idx].Allow_Response_Review = res.data.allow_response_review;
+            }
+            renderExams();
+            showAlert(res.data.message, 'success');
+        } else {
+            showAlert(res.data.message || 'Failed to update response review setting', 'error');
+        }
+    } catch (err) {
+        showAlert(err.response?.data?.message || 'Error updating response review setting', 'error');
+    }
+}
+
+async function archiveExam(examId) {
+    const exam = exams.find(e => String(e.Exam_ID) === String(examId));
+    if (!exam) return;
+
+    const result = await Swal.fire({
+        title: 'Archive exam?',
+        text: `"${exam.Title}" will be hidden from active exam management.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Archive',
+        cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+        const res = await axios.post(EXAMS_API, { action: 'archive', exam_id: examId });
+        if (res.data.success) {
+            showAlert('Exam archived successfully', 'success');
+            loadExams();
+        } else {
+            showAlert(res.data.message || 'Failed to archive exam', 'error');
+        }
+    } catch (err) {
+        showAlert(err.response?.data?.message || 'Error archiving exam', 'error');
+    }
+}
+
+async function restoreExam(examId) {
+    try {
+        const res = await axios.post(EXAMS_API, { action: 'restore', exam_id: examId });
+        if (res.data.success) {
+            showAlert('Exam restored successfully', 'success');
+            currentStatusFilter = '';
+            const statusFilter = document.getElementById('filterExamStatus');
+            if (statusFilter) statusFilter.value = '';
+            loadExams();
+        } else {
+            showAlert(res.data.message || 'Failed to restore exam', 'error');
+        }
+    } catch (err) {
+        showAlert(err.response?.data?.message || 'Error restoring exam', 'error');
+    }
+}
+
+async function closeExam(examId) {
+    const result = await Swal.fire({
+        title: 'Close exam?',
+        text: 'Students will no longer be able to start this exam.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Close exam',
+        cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+        const res = await axios.post(EXAMS_API, { action: 'close', exam_id: examId });
+        if (res.data.success) {
+            showAlert('Exam closed successfully', 'success');
+            loadExams();
+        } else {
+            showAlert(res.data.message || 'Failed to close exam', 'error');
+        }
+    } catch (err) {
+        showAlert(err.response?.data?.message || 'Error closing exam', 'error');
+    }
+}
+
+async function publishExamQuick(examId) {
+    const exam = exams.find(e => String(e.Exam_ID) === String(examId));
+    if (!exam) return;
+
+    if ((exam.Question_Count || 0) === 0 || (exam.Batch_Count || 0) === 0) {
+        showAlert('Add questions and assign batches before publishing. Opening edit form...', 'error');
+        editExam(examId);
+        return;
+    }
+
+    const result = await Swal.fire({
+        title: 'Publish exam?',
+        text: `"${exam.Title}" will become available to assigned examinees.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Publish',
+        cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+        const res = await axios.post(EXAMS_API, {
+            action: 'update',
+            exam_id: exam.Exam_ID,
+            subject_id: exam.Subject_ID,
+            title: exam.Title,
+            description: exam.Description,
+            schedule_date: exam.Schedule_Date,
+            deadline: exam.Deadline,
+            duration: exam.Duration,
+            passing_score: exam.Passing_Score,
+            status: 'Published',
+            is_randomized: exam.Is_Randomized
+        });
+        if (res.data.success) {
+            showAlert('Exam published successfully', 'success');
+            loadExams();
+        } else {
+            showAlert(res.data.message || 'Failed to publish exam', 'error');
+        }
+    } catch (err) {
+        showAlert(err.response?.data?.message || 'Error publishing exam', 'error');
+    }
+}
+
+function bindExamCardActions() {
+    const container = document.getElementById('examsContainer');
+    if (!container || container.dataset.actionsBound === 'true') {
+        return;
+    }
+
+    container.addEventListener('click', function(e) {
+        const button = e.target.closest('[data-exam-action]');
+        if (!button) return;
+
+        const action = button.dataset.examAction;
+        const examId = parseInt(button.dataset.examId, 10);
+        if (!examId) return;
+
+        e.preventDefault();
+
+        switch (action) {
+            case 'edit':
+                editExam(examId);
+                break;
+            case 'copy-code':
+                copyExamCode(examId);
+                break;
+            case 'reset-code':
+                resetExamCode(examId);
+                break;
+            case 'toggle-review':
+                toggleResponseReview(examId);
+                break;
+            case 'archive':
+                archiveExam(examId);
+                break;
+            case 'restore':
+                restoreExam(examId);
+                break;
+            case 'close':
+                closeExam(examId);
+                break;
+            case 'publish':
+                publishExamQuick(examId);
+                break;
+            case 'reopen':
+                reopenExam(examId);
+                break;
+            case 'delete':
+                deleteExam(examId);
+                break;
+            default:
+                break;
+        }
+    });
+
+    container.dataset.actionsBound = 'true';
 }
 
 function manageExamDetails(examId) {
@@ -198,7 +564,8 @@ function manageExamDetails(examId) {
     editExam(examId);
 }
 
-function badgeForStatus(status) {
+function badgeForStatus(status, isArchived) {
+    if (String(isArchived) === '1') return 'bg-dark text-white';
     if (status === 'Published') return 'bg-success text-white';
     if (status === 'Closed') return 'bg-secondary text-white';
     return 'bg-warning text-dark';
@@ -555,7 +922,11 @@ document.getElementById('examForm').addEventListener('submit', function (e) {
                 // Wait for all assignments to complete
                 if (promises.length > 0) {
                     return Promise.all(promises).then(() => {
-                        showAlert(action === 'add' ? 'Exam added successfully' : 'Exam updated successfully', 'success');
+                        if (action === 'add' && res.data.exam_code) {
+                            showExamCodeModal(res.data.exam_code, 'Exam Created');
+                        } else {
+                            showAlert(action === 'add' ? 'Exam added successfully' : 'Exam updated successfully', 'success');
+                        }
                         bootstrap.Modal.getInstance(document.getElementById('examModal')).hide();
                         document.getElementById('examForm').reset();
                         document.getElementById('examId').value = '';
@@ -566,7 +937,11 @@ document.getElementById('examForm').addEventListener('submit', function (e) {
                         showAlert(errorMsg, 'error');
                     });
                 } else {
-                    showAlert(action === 'add' ? 'Exam added successfully' : 'Exam updated successfully', 'success');
+                    if (action === 'add' && res.data.exam_code) {
+                        showExamCodeModal(res.data.exam_code, 'Exam Created');
+                    } else {
+                        showAlert(action === 'add' ? 'Exam added successfully' : 'Exam updated successfully', 'success');
+                    }
                     bootstrap.Modal.getInstance(document.getElementById('examModal')).hide();
                     document.getElementById('examForm').reset();
                     document.getElementById('examId').value = '';
@@ -694,7 +1069,11 @@ document.getElementById('filterSubject').addEventListener('change', function () 
 
 document.getElementById('filterExamStatus').addEventListener('change', function () {
     currentStatusFilter = this.value || '';
-    renderExams();
+    if (currentStatusFilter === 'Archived') {
+        loadExams();
+    } else {
+        renderExams();
+    }
 });
 
 // When course in exam modal changes, update subject select
@@ -923,6 +1302,7 @@ document.getElementById('logoutBtn').addEventListener('click', function(e) {
 
 // Init
 loadCoursesAndSubjects();
+bindExamCardActions();
 loadExams();
 loadBatches();
 

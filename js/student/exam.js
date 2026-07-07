@@ -312,7 +312,9 @@ async function submitExam(autoSubmit = false) {
         
         if (response.data.success) {
             const data = response.data.data;
-            
+            const canReview = data.can_review_responses === true;
+            const resultId = data.result_id;
+
             Swal.fire({
                 title: data.remarks === 'Passed' ? 'Congratulations!' : 'Exam Completed',
                 html: `
@@ -321,13 +323,20 @@ async function submitExam(autoSubmit = false) {
                         <p class="mb-2">Score: <strong>${data.score} / ${data.total_questions}</strong></p>
                         <p class="mb-2">Percentage: <strong>${data.percentage}%</strong></p>
                         <p class="text-muted">Passing Score: ${data.passing_score}%</p>
+                        ${!canReview ? '<p class="text-muted small mt-2"><i class="bi bi-lock"></i> Response review is disabled for this exam.</p>' : ''}
                     </div>
                 `,
                 icon: data.remarks === 'Passed' ? 'success' : 'info',
-                confirmButtonText: 'View Results',
+                confirmButtonText: canReview && resultId ? 'View Responses' : 'Go to Dashboard',
+                showCancelButton: canReview && resultId,
+                cancelButtonText: 'Go to Dashboard',
                 allowOutsideClick: false
-            }).then(() => {
-                window.location.href = '../examinee/dashboard.php';
+            }).then((swalResult) => {
+                if (canReview && resultId && swalResult.isConfirmed) {
+                    window.location.href = `result.php?result_id=${resultId}`;
+                } else {
+                    window.location.href = '../examinee/dashboard.php';
+                }
             });
         }
     } catch (error) {

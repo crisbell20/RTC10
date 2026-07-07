@@ -146,6 +146,7 @@ function populateExamsTable(exams) {
                         data-exam-id="${exam.Exam_ID}"
                         data-session-id="${exam.Session_ID || ''}"
                         data-has-started="${exam.has_started}"
+                        data-requires-code="${exam.requires_exam_code ? 'true' : 'false'}"
                         ${status.text === 'Overdue' && !exam.has_started ? 'disabled' : ''}>
                     <i class="bi bi-${buttonIcon}"></i> ${buttonText}
                 </button>
@@ -158,8 +159,7 @@ function populateExamsTable(exams) {
     // Attach event listeners to "Take Exam" buttons
     document.querySelectorAll('.take-exam-btn').forEach(btn => {
         btn.addEventListener('click', function() {
-            const examId = this.getAttribute('data-exam-id');
-            handleTakeExam(examId);
+            handleTakeExam(this.getAttribute('data-exam-id'), this);
         });
     });
 }
@@ -193,6 +193,13 @@ function populateResultsTable(results) {
         const statusBadge = result.status === 'Passed' ? 
             '<span class="badge bg-success">Passed</span>' : 
             '<span class="badge bg-danger">Failed</span>';
+
+        const canViewDetails = result.can_view_details !== false;
+        const detailsCell = canViewDetails
+            ? `<button class="btn btn-sm btn-outline-primary view-details-btn" data-result-id="${result.Result_ID}">
+                    <i class="bi bi-eye"></i> View Details
+               </button>`
+            : `<span class="text-muted small"><i class="bi bi-lock"></i> Review disabled</span>`;
         
         row.innerHTML = `
             <td>${escapeHtml(result.exam_title)}</td>
@@ -200,11 +207,7 @@ function populateResultsTable(results) {
             <td>${result.Score}</td>
             <td>${result.Percentage}%</td>
             <td>${statusBadge}</td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary view-details-btn" data-result-id="${result.Result_ID}">
-                    <i class="bi bi-eye"></i> View Details
-                </button>
-            </td>
+            <td>${detailsCell}</td>
         `;
         
         tbody.appendChild(row);
@@ -222,28 +225,39 @@ function populateResultsTable(results) {
 /**
  * Handle "Take Exam" button click
  */
-async function handleTakeExam(examId) {
-    const button = event.currentTarget;
+async function handleTakeExam(examId, buttonEl) {
+    const button = buttonEl || (typeof event !== 'undefined' ? event.currentTarget : null);
+    if (!button) {
+        Swal.fire('Error', 'Unable to start exam', 'error');
+        return;
+    }
+
     const hasStarted = button.getAttribute('data-has-started') === 'true';
     const sessionId = button.getAttribute('data-session-id');
+    const requiresCode = button.getAttribute('data-requires-code') === 'true';
     
-    // If exam already started, just continue
+    // If exam already started, just continue (no code required on resume)
     if (hasStarted && sessionId) {
         window.location.href = `../student masterfiles/exam.php?session_id=${sessionId}`;
         return;
     }
     
-    // Get exam details for the confirmation
     const examRow = button.closest('tr');
-    const duration = examRow.cells[5].textContent; // Duration column
-    const deadline = examRow.querySelector('small').textContent; // Deadline text
+    const duration = examRow ? examRow.cells[5].textContent : 'N/A';
+    const deadlineEl = examRow ? examRow.querySelector('small') : null;
+    const deadline = deadlineEl ? deadlineEl.textContent : '';
     
-    // Show confirmation dialog for new exam
-    const result = await Swal.fire({
+    const swalConfig = {
         title: 'Start Exam',
         html: `
             <div class="text-start">
                 <p>Are you ready to begin this exam?</p>
+                ${requiresCode ? `
+                <div class="mb-3">
+                    <label for="examCodeInput" class="form-label">Exam code <span class="text-danger">*</span></label>
+                    <input id="examCodeInput" class="form-control text-uppercase" placeholder="Enter exam code" maxlength="12" autocomplete="off">
+                    <small class="text-muted">Get this code from your instructor or proctor.</small>
+                </div>` : ''}
                 <div class="alert alert-warning">
                     <strong><i class="bi bi-clock"></i> Important:</strong>
                     <ul class="mb-0 mt-2">
@@ -260,14 +274,32 @@ async function handleTakeExam(examId) {
         cancelButtonText: 'Not yet',
         confirmButtonColor: '#2563eb',
         cancelButtonColor: '#6b7280',
-        width: '500px'
-    });
+        width: '500px',
+        didOpen: () => {
+            if (requiresCode) {
+                document.getElementById('examCodeInput')?.focus();
+            }
+        },
+        preConfirm: () => {
+            if (!requiresCode) {
+                return { exam_code: null };
+            }
+            const codeInput = document.getElementById('examCodeInput');
+            const code = codeInput ? codeInput.value.trim() : '';
+            if (!code) {
+                Swal.showValidationMessage('Exam code is required');
+                return false;
+            }
+            return { exam_code: code };
+        }
+    };
+
+    const result = await Swal.fire(swalConfig);
     
     if (!result.isConfirmed) {
         return;
     }
     
-    // Show loading
     Swal.fire({
         title: 'Starting exam...',
         allowOutsideClick: false,
@@ -277,9 +309,12 @@ async function handleTakeExam(examId) {
     });
     
     try {
-        const response = await axios.post(START_EXAM_API, {
-            exam_id: examId
-        });
+        const payload = { exam_id: examId };
+        if (requiresCode && result.value?.exam_code) {
+            payload.exam_code = result.value.exam_code;
+        }
+
+        const response = await axios.post(START_EXAM_API, payload);
         
         if (response.data.success) {
             Swal.fire({
@@ -289,7 +324,6 @@ async function handleTakeExam(examId) {
                 timer: 2000,
                 showConfirmButton: false
             }).then(() => {
-                // Redirect to exam page
                 window.location.href = `../student masterfiles/exam.php?session_id=${response.data.data.session_id}`;
             });
         } else {

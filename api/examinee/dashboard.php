@@ -8,6 +8,7 @@ header('Content-Type: application/json');
 session_start();
 
 require_once '../config/connection-pdo.php';
+require_once '../includes/exam-code-utils.php';
 
 /**
  * Send success response
@@ -170,6 +171,17 @@ function getAvailableExams($pdo, $userId) {
         error_log("Auto-close exams error: " . $e->getMessage());
     }
     
+    $hasExamCode = false;
+    try {
+        $colCheck = $pdo->query("SHOW COLUMNS FROM tbl_exam LIKE 'Exam_Code'");
+        $hasExamCode = $colCheck && $colCheck->rowCount() > 0;
+    } catch (Exception $e) {
+        $hasExamCode = false;
+    }
+
+    $codeSelect = $hasExamCode ? 'e.Exam_Code,' : '';
+    $archivedFilter = $hasExamCode ? 'AND (e.Is_Archived = 0 OR e.Is_Archived IS NULL)' : '';
+
     $query = "
         SELECT DISTINCT
             e.Exam_ID,
@@ -179,6 +191,7 @@ function getAvailableExams($pdo, $userId) {
             e.Deadline,
             e.Duration,
             e.Passing_Score,
+            {$codeSelect}
             s.Subject_Name,
             c.Course_Name,
             COUNT(DISTINCT eq.Question_ID) as Question_Count,
@@ -193,6 +206,7 @@ function getAvailableExams($pdo, $userId) {
         LEFT JOIN tbl_exam_question eq ON e.Exam_ID = eq.Exam_ID
         LEFT JOIN tbl_exam_session es ON e.Exam_ID = es.Exam_ID AND es.User_ID = ?
         WHERE e.Status = 'Published'
+        {$archivedFilter}
         AND ub.User_ID = ?
         AND ub.Status = 'Active'
         AND (es.Session_ID IS NULL OR es.Time_Ended IS NULL)
@@ -230,6 +244,9 @@ function getAvailableExams($pdo, $userId) {
             $exam['has_started'] = false;
             $exam['Time_Started'] = null;
         }
+
+        $exam['requires_exam_code'] = $hasExamCode && !empty($exam['Exam_Code']);
+        unset($exam['Exam_Code']);
     }
     
     sendSuccess($exams);
@@ -239,6 +256,9 @@ function getAvailableExams($pdo, $userId) {
  * Get recent results
  */
 function getRecentResults($pdo, $userId) {
+    $hasResponseReview = responseReviewColumnExists($pdo);
+    $reviewSelect = $hasResponseReview ? 'e.Allow_Response_Review,' : '';
+
     $query = "
         SELECT 
             r.Result_ID,
@@ -248,6 +268,7 @@ function getRecentResults($pdo, $userId) {
             r.Submission_Date,
             e.Title as exam_title,
             e.Passing_Score,
+            {$reviewSelect}
             es.Session_ID
         FROM tbl_result r
         INNER JOIN tbl_exam_session es ON r.Session_ID = es.Session_ID
@@ -264,6 +285,10 @@ function getRecentResults($pdo, $userId) {
     // Add pass/fail status and format dates
     foreach ($results as &$result) {
         $result['status'] = $result['Percentage'] >= $result['Passing_Score'] ? 'Passed' : 'Failed';
+        $result['can_view_details'] = examAllowsResponseReview($result, $hasResponseReview);
+        if ($hasResponseReview) {
+            unset($result['Allow_Response_Review']);
+        }
         if ($result['Submission_Date']) {
             $result['Submission_Date'] = date('Y-m-d H:i:s', strtotime($result['Submission_Date']));
         }
@@ -276,6 +301,9 @@ function getRecentResults($pdo, $userId) {
  * Get all results for the user
  */
 function getAllResults($pdo, $userId) {
+    $hasResponseReview = responseReviewColumnExists($pdo);
+    $reviewSelect = $hasResponseReview ? 'e.Allow_Response_Review,' : '';
+
     $query = "
         SELECT 
             r.Result_ID,
@@ -286,6 +314,7 @@ function getAllResults($pdo, $userId) {
             e.Title as exam_title,
             e.Passing_Score,
             e.Duration,
+            {$reviewSelect}
             s.Subject_Name,
             es.Session_ID,
             es.Time_Started,
@@ -306,6 +335,11 @@ function getAllResults($pdo, $userId) {
     
     // Format results
     foreach ($results as &$result) {
+        $result['can_view_details'] = examAllowsResponseReview($result, $hasResponseReview);
+        if ($hasResponseReview) {
+            unset($result['Allow_Response_Review']);
+        }
+
         // Calculate time taken
         if ($result['time_taken_minutes']) {
             $hours = floor($result['time_taken_minutes'] / 60);

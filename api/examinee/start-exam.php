@@ -8,6 +8,7 @@ header('Content-Type: application/json');
 session_start();
 
 require_once '../config/connection-pdo.php';
+require_once '../includes/exam-code-utils.php';
 
 /**
  * Send success response
@@ -47,6 +48,8 @@ $userId = $_SESSION['user_id'];
 // Get request data
 $input = json_decode(file_get_contents('php://input'), true);
 $examId = $input['exam_id'] ?? null;
+$submittedCode = $input['exam_code'] ?? null;
+$hasExamCode = examCodeColumnsExist($pdo);
 
 // Validate exam_id parameter
 if (empty($examId) || !is_numeric($examId)) {
@@ -58,9 +61,13 @@ try {
     $pdo->beginTransaction();
     
     // Check if exam exists and is published
+    $examColumns = $hasExamCode
+        ? 'Exam_ID, Title, Status, Schedule_Date, Deadline, Exam_Code, Is_Archived'
+        : 'Exam_ID, Title, Status, Schedule_Date, Deadline';
+
     $examQuery = "
-        SELECT Exam_ID, Title, Status, Schedule_Date 
-        FROM tbl_exam 
+        SELECT {$examColumns}
+        FROM tbl_exam
         WHERE Exam_ID = ?
     ";
     $stmt = $pdo->prepare($examQuery);
@@ -70,6 +77,11 @@ try {
     if (!$exam) {
         $pdo->rollBack();
         sendError('Exam not found', 404);
+    }
+
+    if ($hasExamCode && !empty($exam['Is_Archived'])) {
+        $pdo->rollBack();
+        sendError('This exam is no longer available', 403);
     }
     
     // Validate exam has questions assigned (Requirement 10.1, 10.2)
@@ -155,13 +167,33 @@ try {
     $activeSession = $stmt->fetch();
     
     if ($activeSession) {
-        // Resume existing session
+        // Resume existing session (exam code already validated when session started)
         $pdo->commit();
         sendSuccess([
             'session_id' => $activeSession['Session_ID'],
             'exam_title' => $exam['Title'],
             'message' => 'Resuming existing exam session'
         ]);
+    }
+
+    // Validate exam access code for new sessions
+    if ($hasExamCode && !empty($exam['Exam_Code'])) {
+        $failedAttempts = getRecentFailedCodeAttempts($pdo, (int)$examId, (int)$userId);
+        if ($failedAttempts >= 5) {
+            $pdo->rollBack();
+            sendError('Too many invalid code attempts. Please wait 15 minutes or contact your proctor.', 429);
+        }
+
+        $normalizedSubmitted = normalizeExamCode($submittedCode ?? '');
+        $normalizedStored = normalizeExamCode($exam['Exam_Code']);
+
+        if ($normalizedSubmitted === '' || $normalizedSubmitted !== $normalizedStored) {
+            logExamCodeAttempt($pdo, (int)$examId, (int)$userId, false);
+            $pdo->rollBack();
+            sendError('Invalid or expired exam code', 403);
+        }
+
+        logExamCodeAttempt($pdo, (int)$examId, (int)$userId, true);
     }
     
     // Create new exam session

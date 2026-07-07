@@ -8,6 +8,7 @@ header('Content-Type: application/json');
 session_start();
 
 require_once '../config/connection-pdo.php';
+require_once '../includes/exam-code-utils.php';
 
 function sendSuccess($data = []) {
     http_response_code(200);
@@ -83,20 +84,26 @@ try {
     $stmt->execute([$session_id]);
     $result = $stmt->fetch();
     
-    // Get passing score
-    $stmt = $pdo->prepare('SELECT Passing_Score FROM tbl_exam WHERE Exam_ID = ?');
+    // Get passing score and review setting
+    $hasResponseReview = responseReviewColumnExists($pdo);
+    $reviewSelect = $hasResponseReview ? ', Allow_Response_Review' : '';
+    $stmt = $pdo->prepare("SELECT Passing_Score{$reviewSelect} FROM tbl_exam WHERE Exam_ID = ?");
     $stmt->execute([$session['Exam_ID']]);
     $exam = $stmt->fetch();
     $passing_score = $exam['Passing_Score'] ?? 50;
+    $canReview = examAllowsResponseReview($exam ?: [], $hasResponseReview);
     
     $remarks = $percentage >= $passing_score ? 'Passed' : 'Failed';
+    $resultId = null;
     
     if ($result) {
+        $resultId = (int)$result['Result_ID'];
         $stmt = $pdo->prepare('UPDATE tbl_result SET Score = ?, Percentage = ?, Remarks = ?, Submission_Date = NOW() WHERE Result_ID = ?');
-        $stmt->execute([$score, $percentage, $remarks, $result['Result_ID']]);
+        $stmt->execute([$score, $percentage, $remarks, $resultId]);
     } else {
         $stmt = $pdo->prepare('INSERT INTO tbl_result (Session_ID, Score, Percentage, Remarks, Submission_Date) VALUES (?, ?, ?, ?, NOW())');
         $stmt->execute([$session_id, $score, $percentage, $remarks]);
+        $resultId = (int)$pdo->lastInsertId();
     }
     
     $pdo->commit();
@@ -106,7 +113,9 @@ try {
         'total_questions' => $total_questions,
         'percentage' => round($percentage, 2),
         'remarks' => $remarks,
-        'passing_score' => $passing_score
+        'passing_score' => $passing_score,
+        'can_review_responses' => $canReview,
+        'result_id' => $resultId
     ]);
     
 } catch (Exception $e) {

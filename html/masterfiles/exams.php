@@ -114,6 +114,7 @@ $userName = $_SESSION['user_name'] ?? 'User';
                                 <option value="">All Status</option>
                                 <option value="Draft">Draft</option>
                                 <option value="Published">Published</option>
+                                <option value="Closed">Closed</option>
                                 <option value="Archived">Archived</option>
                             </select>
                         </div>
@@ -258,7 +259,7 @@ $userName = $_SESSION['user_name'] ?? 'User';
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="../../assets/js/auto-logout.js"></script>
-    <script src="../../js/masterfiles/exams.js"></script>
+    <script src="../../js/masterfiles/exams.js?v=6"></script>
 </body>
 </html>
 
