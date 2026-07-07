@@ -39,7 +39,8 @@ try {
                    c.Course_Name,
                    COUNT(DISTINCT eq.Question_ID) as Question_Count,
                    COUNT(DISTINCT eb.Batch_ID) as Batch_Count,
-                   COUNT(DISTINCT es.Session_ID) as Session_Count
+                   COUNT(DISTINCT es.Session_ID) as Session_Count,
+                   COUNT(DISTINCT CASE WHEN es.Time_Ended IS NOT NULL THEN es.Session_ID END) as Finished_Count
             FROM tbl_exam e
             INNER JOIN tbl_subject s ON e.Subject_ID = s.Subject_ID
             INNER JOIN tbl_course c ON s.Course_ID = c.Course_ID

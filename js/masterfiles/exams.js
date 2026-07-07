@@ -164,6 +164,9 @@ function buildExamActionMenu(exam) {
 
         const reviewOn = String(exam.Allow_Response_Review) === '1';
         items.push(`<li><button class="dropdown-item" type="button" data-exam-action="toggle-review" data-exam-id="${exam.Exam_ID}"><i class="bi ${reviewOn ? 'bi-check-circle-fill text-success' : 'bi-circle'} me-2"></i>Allow response review</button></li>`);
+
+        const finished = parseInt(exam.Finished_Count, 10) || 0;
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="view-responses" data-exam-id="${exam.Exam_ID}"><i class="bi bi-bar-chart-line me-2"></i>View responses${finished ? ` (${finished})` : ''}</button></li>`);
         items.push('<li><hr class="dropdown-divider"></li>');
 
         if (exam.Status === 'Draft') {
@@ -184,6 +187,8 @@ function buildExamActionMenu(exam) {
         }
     } else {
         items.push(`<li><button class="dropdown-item" type="button" data-exam-action="restore" data-exam-id="${exam.Exam_ID}"><i class="bi bi-arrow-counterclockwise me-2"></i>Restore</button></li>`);
+        const finishedArchived = parseInt(exam.Finished_Count, 10) || 0;
+        items.push(`<li><button class="dropdown-item" type="button" data-exam-action="view-responses" data-exam-id="${exam.Exam_ID}"><i class="bi bi-bar-chart-line me-2"></i>View responses${finishedArchived ? ` (${finishedArchived})` : ''}</button></li>`);
         if (exam.Exam_Code) {
             items.push(`<li><button class="dropdown-item" type="button" data-exam-action="copy-code" data-exam-id="${exam.Exam_ID}"><i class="bi bi-clipboard me-2"></i>Copy exam code</button></li>`);
         }
@@ -532,6 +537,9 @@ function bindExamCardActions() {
                 break;
             case 'toggle-review':
                 toggleResponseReview(examId);
+                break;
+            case 'view-responses':
+                window.location.href = `exam-responses.php?exam_id=${examId}`;
                 break;
             case 'archive':
                 archiveExam(examId);
