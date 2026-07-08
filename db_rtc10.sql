@@ -58,9 +58,15 @@ CREATE TABLE `tbl_answer` (
 
 CREATE TABLE `tbl_audit_log` (
   `Log_ID` int(11) NOT NULL,
-  `User_ID` int(11) NOT NULL,
+  `User_ID` int(11) DEFAULT NULL,
   `Action` varchar(255) NOT NULL,
-  `Outcome` varchar(100) NOT NULL,
+  `Module` varchar(50) DEFAULT NULL,
+  `Outcome` text DEFAULT NULL,
+  `Status` varchar(20) NOT NULL DEFAULT 'SUCCESS',
+  `Entity_Type` varchar(50) DEFAULT NULL,
+  `Entity_ID` int(11) DEFAULT NULL,
+  `IP_Address` varchar(45) DEFAULT NULL,
+  `User_Role` varchar(50) DEFAULT NULL,
   `Timestamp` datetime NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -371,6 +377,7 @@ CREATE TABLE `tbl_user` (
   `Username` varchar(100) NOT NULL,
   `Password_Hash` varchar(255) NOT NULL,
   `Academic_Number` varchar(50) DEFAULT NULL,
+  `Personnel_Rank` varchar(50) DEFAULT NULL,
   `Must_Change_Password` tinyint(1) NOT NULL DEFAULT 0,
   `Date_Created` datetime NOT NULL DEFAULT current_timestamp(),
   `Status` enum('Active','Inactive','Suspended') NOT NULL DEFAULT 'Active'
@@ -402,7 +409,11 @@ ALTER TABLE `tbl_answer`
 --
 ALTER TABLE `tbl_audit_log`
   ADD PRIMARY KEY (`Log_ID`),
-  ADD KEY `idx_audit_user` (`User_ID`);
+  ADD KEY `idx_audit_user` (`User_ID`),
+  ADD KEY `idx_audit_timestamp` (`Timestamp`),
+  ADD KEY `idx_audit_module` (`Module`),
+  ADD KEY `idx_audit_action` (`Action`),
+  ADD KEY `idx_audit_status` (`Status`);
 
 --
 -- Indexes for table `tbl_batch`
